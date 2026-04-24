@@ -80,13 +80,44 @@ async function prepareImage(dataUrl, maxLong = 1500, maxPixels = 1600000) {
 }
 
 async function createPrediction(model, input) {
+  const modelName = String(model || '').trim();
+
+  if (!modelName) {
+    throw new Error('缺少 Replicate 模型名稱');
+  }
+
+  // owner/name 形式：使用 models endpoint
+  // 例如 topazlabs/image-upscale、jingyunliang/swinir、tencentarc/gfpgan
+  if (modelName.includes('/') && !modelName.includes(':')) {
+    const [owner, name] = modelName.split('/');
+
+    const r = await fetch(`https://api.replicate.com/v1/models/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/predictions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ input })
+    });
+
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.detail || data.error || `Replicate create error ${r.status}`);
+    return data;
+  }
+
+  // owner/name:version 或純 version hash：使用 predictions endpoint
+  let version = modelName;
+  if (modelName.includes(':')) {
+    version = modelName.split(':').pop();
+  }
+
   const r = await fetch('https://api.replicate.com/v1/predictions', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${TOKEN}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ version: model, input })
+    body: JSON.stringify({ version, input })
   });
 
   const data = await r.json().catch(() => ({}));
@@ -186,12 +217,17 @@ async function runPipeline(job, payload) {
       if (useSwinIR) {
         job.progress = 66;
         job.message = 'SwinIR 第二層細節補強中…';
-        image = await runReplicate(
-          'jingyunliang/swinir',
-          { image, task_type: 'Real-World Image Super-Resolution-Large', noise: 15, jpeg: 40 },
-          () => {},
-          'SwinIR'
-        );
+        try {
+          image = await runReplicate(
+            'jingyunliang/swinir',
+            { image, task_type: 'Real-World Image Super-Resolution-Large', noise: 15, jpeg: 40 },
+            () => {},
+            'SwinIR'
+          );
+        } catch (stageError) {
+          console.warn('[pipeline warning] SwinIR skipped:', String(stageError.message || stageError));
+          job.message = 'SwinIR 暫時無法使用，已保留第一層增強結果…';
+        }
       }
     } else if (pipeline === 'restore') {
       job.progress = 18;
@@ -206,23 +242,33 @@ async function runPipeline(job, payload) {
       if (useGFPGAN) {
         job.progress = 52;
         job.message = 'GFPGAN 臉部修復中…';
-        image = await runReplicate(
-          'tencentarc/gfpgan',
-          { img: image, version: 'v1.4', scale: 1, weight: 0.5 },
-          () => {},
-          'GFPGAN'
-        );
+        try {
+          image = await runReplicate(
+            'tencentarc/gfpgan',
+            { img: image, version: 'v1.4', scale: 1, weight: 0.5 },
+            () => {},
+            'GFPGAN'
+          );
+        } catch (stageError) {
+          console.warn('[pipeline warning] GFPGAN skipped:', String(stageError.message || stageError));
+          job.message = 'GFPGAN 暫時無法使用，已跳過臉部修復…';
+        }
       }
 
       if (useSwinIR) {
         job.progress = 76;
         job.message = 'SwinIR 第二層細節重建中…';
-        image = await runReplicate(
-          'jingyunliang/swinir',
-          { image, task_type: 'Real-World Image Super-Resolution-Large', noise: 15, jpeg: 40 },
-          () => {},
-          'SwinIR'
-        );
+        try {
+          image = await runReplicate(
+            'jingyunliang/swinir',
+            { image, task_type: 'Real-World Image Super-Resolution-Large', noise: 15, jpeg: 40 },
+            () => {},
+            'SwinIR'
+          );
+        } catch (stageError) {
+          console.warn('[pipeline warning] SwinIR skipped:', String(stageError.message || stageError));
+          job.message = 'SwinIR 暫時無法使用，已保留第一層增強結果…';
+        }
       }
     } else {
       job.progress = 18;
@@ -237,12 +283,17 @@ async function runPipeline(job, payload) {
       if (useSwinIR) {
         job.progress = 70;
         job.message = 'SwinIR 第二層細節補強中…';
-        image = await runReplicate(
-          'jingyunliang/swinir',
-          { image, task_type: 'Real-World Image Super-Resolution-Large', noise: 15, jpeg: 40 },
-          () => {},
-          'SwinIR'
-        );
+        try {
+          image = await runReplicate(
+            'jingyunliang/swinir',
+            { image, task_type: 'Real-World Image Super-Resolution-Large', noise: 15, jpeg: 40 },
+            () => {},
+            'SwinIR'
+          );
+        } catch (stageError) {
+          console.warn('[pipeline warning] SwinIR skipped:', String(stageError.message || stageError));
+          job.message = 'SwinIR 暫時無法使用，已保留第一層增強結果…';
+        }
       }
     }
 
